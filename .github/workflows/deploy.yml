@@ -1,8 +1,14 @@
 name: Deploy SSFMS
 
+# NOTE: GitHub Actions -> AWS OIDC is BLOCKED in this project.
+# The "new AWS experience" service control policy denies
+# iam:CreateOpenIDConnectProvider and iam:ListOpenIDConnectProviders, so the
+# Configure AWS credentials (OIDC) step can never succeed here.
+#
+# This workflow is kept as reference and for accounts where OIDC is allowed.
+# It is manual-only so pushes do not queue failing runs. For this project use
+# the AWS CodePipeline stack (deploy/codepipeline.yaml) or deploy/deploy.ps1.
 on:
-  push:
-    branches: [soumik]
   workflow_dispatch:
 
 permissions:
