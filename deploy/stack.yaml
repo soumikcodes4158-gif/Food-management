@@ -43,10 +43,11 @@ Parameters:
 
   CloudFrontPrefixListId:
     Type: String
-    Default: pl-82a045eb
+    Default: pl-b8a742d1
     Description: >
-      Managed prefix list "com.amazonaws.global.cloudfront.origin-facing".
-      This ID is global; override only if AWS changes it.
+      Managed prefix list "com.amazonaws.global.cloudfront.origin-facing" in
+      ap-southeast-2. This ID is region-specific; override if deploying
+      elsewhere (look up via `aws ec2 describe-managed-prefix-lists`).
 
   AmiSsmParameter:
     Type: String
