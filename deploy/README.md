@@ -1,5 +1,28 @@
 # SSFMS on AWS — deployment runbook
 
+## Deployed environment (live)
+
+| Item | Value |
+|---|---|
+| Project / account | `081473213109` |
+| Selected Region | `ap-southeast-2` |
+| Site URL | https://d31vvvoobwe8vk.cloudfront.net |
+| API base | https://d31vvvoobwe8vk.cloudfront.net/api |
+| API docs | https://d31vvvoobwe8vk.cloudfront.net/api/docs |
+| CloudFront distribution | `E3FOPM09DTAUK5` |
+| EC2 instance | `i-069eb3ae3367f8143` (t4g.small) |
+| Frontend bucket | `ssfms-prod-site-081473213109-ap-southeast-2` |
+| Backup bucket | `ssfms-prod-backups-081473213109-ap-southeast-2` |
+| CloudFormation stacks | `ssfms-prod`, `ssfms-serverless` |
+| WAF Web ACL | `ssfms-cloudfront-acl` (us-east-1, global) |
+| Admin password | `aws secretsmanager get-secret-value --secret-id ssfms/prod/admin --query SecretString --output text --region ap-southeast-2` |
+
+GitHub Actions / OIDC is **not used**: the project SCP denies
+`iam:CreateOpenIDConnectProvider` and `iam:ListOpenIDConnectProviders`.
+CloudFormation is also blocked in `us-east-1`, so the WAF is created through
+the WAF API directly rather than a stack.
+
+
 Track 1 architecture: one ARM EC2 instance runs the FastAPI container and
 PostgreSQL with Docker Compose, a private S3 bucket holds the React build, and
 a single CloudFront distribution serves the site at `/` and proxies `/api/*`
