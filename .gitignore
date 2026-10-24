@@ -34,3 +34,7 @@ __pycache__/
 .env
 .env.*
 !.env.example
+
+# AWS deployment templates stay local only (hosted directly via AWS CLI)
+deploy/*.yaml
+.github/workflows/
