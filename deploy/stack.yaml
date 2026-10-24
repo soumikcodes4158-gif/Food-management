@@ -171,6 +171,10 @@ Resources:
               - Effect: Allow
                 Action: ssm:GetParameter
                 Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectName}/${Environment}/*"
+              # Needed so user-data can report its own CreationPolicy success.
+              - Effect: Allow
+                Action: cloudformation:SignalResource
+                Resource: !Sub "arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*"
 
   AppInstanceProfile:
     Type: AWS::IAM::InstanceProfile
@@ -244,7 +248,14 @@ Resources:
           set -euxo pipefail
 
           APP_DIR="/opt/ssfms"
-          export AWS_DEFAULT_REGION="$(curl -fsS http://169.254.169.254/latest/meta-data/placement/region)"
+
+          # IMDSv2 is enforced on this instance, so a plain curl to the
+          # metadata service returns 401. Always fetch a session token first.
+          IMDS_TOKEN="$(curl -fsS -X PUT http://169.254.169.254/latest/api/token \
+            -H 'X-aws-ec2-metadata-token-ttl-seconds: 21600')"
+          export AWS_DEFAULT_REGION="$(curl -fsS \
+            -H "X-aws-ec2-metadata-token: ${IMDS_TOKEN}" \
+            http://169.254.169.254/latest/meta-data/placement/region)"
 
           param() {
             aws ssm get-parameter --name "$1" --query Parameter.Value --output text
@@ -270,19 +281,26 @@ Resources:
             echo '/swapfile none swap sw 0 0' >>/etc/fstab
           fi
 
-          dnf install -y docker git cronie curl
+          dnf install -y docker git cronie
           systemctl enable --now docker
           systemctl enable --now crond
           usermod -aG docker ec2-user
 
           case "$(uname -m)" in
-            aarch64) COMPOSE_ARCH="aarch64" ;;
-            *) COMPOSE_ARCH="x86_64" ;;
+            aarch64) COMPOSE_ARCH="aarch64"; DOCKER_ARCH="arm64" ;;
+            *) COMPOSE_ARCH="x86_64"; DOCKER_ARCH="amd64" ;;
           esac
           mkdir -p /usr/libexec/docker/cli-plugins
           curl -fsSL "https://github.com/docker/compose/releases/latest/download/docker-compose-linux-${COMPOSE_ARCH}" \
             -o /usr/libexec/docker/cli-plugins/docker-compose
           chmod +x /usr/libexec/docker/cli-plugins/docker-compose
+
+          # `docker compose build` requires the buildx plugin, which AL2023 lacks.
+          BUILDX_VERSION="$(curl -fsSL https://api.github.com/repos/docker/buildx/releases/latest | sed -n 's/.*"tag_name": "\(v[^"]*\)".*/\1/p' | head -n1)"
+          BUILDX_VERSION="${BUILDX_VERSION:-v0.30.1}"
+          curl -fsSL "https://github.com/docker/buildx/releases/download/${BUILDX_VERSION}/buildx-${BUILDX_VERSION}.linux-${DOCKER_ARCH}" \
+            -o /usr/libexec/docker/cli-plugins/docker-buildx
+          chmod +x /usr/libexec/docker/cli-plugins/docker-buildx
 
           DB_JSON="$(secret ssfms/prod/db)"
           JWT_JSON="$(secret ssfms/prod/jwt)"
@@ -325,7 +343,7 @@ Resources:
           CRON
           chmod 0644 /etc/cron.d/ssfms-backup
 
-          # Only report success once the API answers its health check.
+          # Signal CloudFormation only once the API answers its health check.
           RESULT=1
           for _ in $(seq 1 60); do
             if curl -fsS http://127.0.0.1:8000/health >/dev/null 2>&1; then
@@ -335,8 +353,14 @@ Resources:
             sleep 10
           done
 
-          /opt/aws/bin/cfn-signal -e $RESULT --stack "$STACK_NAME" \
-            --resource AppInstance --region "$AWS_DEFAULT_REGION"
+          # Use the AWS CLI instead of /opt/aws/bin/cfn-signal, which is not
+          # guaranteed to exist on Amazon Linux 2023.
+          if [ "$RESULT" -eq 0 ]; then SIGNAL_STATUS=SUCCESS; else SIGNAL_STATUS=FAILURE; fi
+          INSTANCE_ID="$(curl -fsS -H "X-aws-ec2-metadata-token: ${IMDS_TOKEN}" \
+            http://169.254.169.254/latest/meta-data/instance-id)"
+          aws cloudformation signal-resource --stack-name "$STACK_NAME" \
+            --logical-resource-id AppInstance --unique-id "$INSTANCE_ID" \
+            --status "$SIGNAL_STATUS" --region "$AWS_DEFAULT_REGION" || true
 
   ElasticIp:
     Type: AWS::EC2::EIP
