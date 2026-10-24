@@ -1,0 +1,71 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  SSFMS Web ACL for CloudFront. Global resources for the CloudFront scope must
+  live in us-east-1, so deploy this stack in us-east-1 (allowed for the new AWS
+  experience) and pass the CloudFront distribution ARN.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: ssfms
+
+  CloudFrontArn:
+    Type: String
+    Description: ARN of the CloudFront distribution from the core stack
+
+Resources:
+  WebACL:
+    Type: AWS::WAFv2::WebACL
+    Properties:
+      Name: !Sub "${ProjectName}-cloudfront-acl"
+      Scope: CLOUDFRONT
+      DefaultAction:
+        Allow: {}
+      VisibilityConfig:
+        SampledRequestsEnabled: true
+        CloudWatchMetricsEnabled: true
+        MetricName: !Sub "${ProjectName}-cloudfront-acl"
+      Rules:
+        - Name: AWSManagedRulesCommonRuleSet
+          Priority: 0
+          OverrideAction:
+            None: {}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesCommonRuleSet
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: aws-common-rule-set
+        - Name: LoginRateLimit
+          Priority: 1
+          Action:
+            Block: {}
+          Statement:
+            RateBasedStatement:
+              Limit: 2000
+              AggregateKeyType: IP
+              ScopeDownStatement:
+                ByteMatchStatement:
+                  SearchString: /api/login
+                  FieldToMatch:
+                    UriPath: {}
+                  TextTransformations:
+                    - Priority: 0
+                      Type: LOWERCASE
+                  PositionalConstraint: STARTS_WITH
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: login-rate-limit
+
+  WebACLAssociation:
+    Type: AWS::WAFv2::WebACLAssociation
+    Properties:
+      ResourceArn: !Ref CloudFrontArn
+      WebACLArn: !GetAtt WebACL.Arn
+
+Outputs:
+  WebACLArn:
+    Value: !GetAtt WebACL.Arn

@@ -2,7 +2,7 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   GitHub Actions deployment role for SSFMS. Creates an OIDC provider (once per
   account) and a role that only the configured repository/branch can assume.
-  Deploy this in the same region as the application stack (ap-south-1).
+  Deploy this in the same region as the application stack (ap-southeast-2).
 
 Parameters:
   GitHubOrg:

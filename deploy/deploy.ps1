@@ -1,6 +1,7 @@
 param(
     [string]$StackName = "ssfms-prod",
-    [string]$Region = "ap-south-1",
+    [string]$Region = "ap-southeast-2",
+    [string]$AwsProfile = "ssfms",
     [string]$AlertEmail = "soumikcodes4158@gmail.com",
     [double]$MonthlyBudgetUsd = 25,
     [string]$InstanceType = "t4g.small",
@@ -8,6 +9,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$env:AWS_PROFILE = $AwsProfile
 
 function Assert-Command($name) {
     if (-not (Get-Command $name -ErrorAction SilentlyContinue)) {

@@ -32,7 +32,7 @@ you HTTPS without owning a domain.
 2. **Enable MFA on root** (Security credentials → MFA). Never create root access keys.
 3. **IAM → Identity Center** (or IAM user) → create an admin identity with MFA.
 4. Billing → **Budgets** → confirm the $25 budget created by the stack.
-5. Pick region **ap-south-1 (Mumbai)** for everything.
+5. Pick region **ap-southeast-2 (Sydney)** for everything.
 
 ### Local credentials
 
@@ -40,7 +40,7 @@ you HTTPS without owning a domain.
 aws configure sso
 # or, for a simple classroom setup:
 aws configure
-#   Access key ID / Secret / region: ap-south-1 / output: json
+#   Access key ID / Secret / region: ap-southeast-2 / output: json
 aws sts get-caller-identity
 ```
 
@@ -58,7 +58,7 @@ Or manually:
 aws cloudformation deploy `
   --template-file deploy/stack.yaml `
   --stack-name ssfms-prod `
-  --region ap-south-1 `
+  --region ap-southeast-2 `
   --capabilities CAPABILITY_NAMED_IAM `
   --parameter-overrides AlertEmail=soumikcodes4158@gmail.com MonthlyBudgetUsd=25
 ```
@@ -88,7 +88,7 @@ the stack rolls back instead of silently shipping a broken server.
 
 ```powershell
 aws secretsmanager get-secret-value --secret-id ssfms/prod/admin `
-  --query SecretString --output text --region ap-south-1
+  --query SecretString --output text --region ap-southeast-2
 ```
 
 Read the site URL from the stack outputs, open it, and log in with that
@@ -116,7 +116,7 @@ aws cloudfront create-invalidation --distribution-id <dist-id> --paths "/*"
 aws cloudformation deploy `
   --template-file deploy/github-oidc.yaml `
   --stack-name ssfms-github-oidc `
-  --region ap-south-1 `
+  --region ap-southeast-2 `
   --capabilities CAPABILITY_NAMED_IAM
 ```
 
@@ -138,7 +138,7 @@ and rebuilds the container over SSM. No access keys are stored in GitHub.
 
 ```powershell
 # Shell onto the instance (no port 22 is open)
-aws ssm start-session --target <InstanceId> --region ap-south-1
+aws ssm start-session --target <InstanceId> --region ap-southeast-2
 
 # Logs
 docker compose -f /opt/ssfms/app/docker-compose.yml logs -f api
@@ -160,7 +160,7 @@ expire after 30 days.
 
 ---
 
-## 6. Estimated monthly cost (ap-south-1, on-demand)
+## 6. Estimated monthly cost (ap-southeast-2, on-demand)
 
 | Item | USD/month |
 |---|---|
@@ -181,7 +181,7 @@ in the AWS console — the 2025 Free Tier is credit-based.
 ## 7. Teardown
 
 ```powershell
-aws cloudformation delete-stack --stack-name ssfms-prod --region ap-south-1
+aws cloudformation delete-stack --stack-name ssfms-prod --region ap-southeast-2
 ```
 
 The S3 buckets contain objects and will block deletion; empty them first:
