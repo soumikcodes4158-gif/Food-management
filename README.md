@@ -1,118 +1,109 @@
 # SSFMS — Smart School Food Management System
 
-A full-stack web app for managing a school's daily food operations: food item rates,
-teacher/class records, attendance-driven meal counts, expenditure reports, PDF exports,
-and an experimental ML forecast of future food expenditure.
+Tracks daily attendance, food consumption, and expenditure for a school meal
+programme, produces printable reports, and forecasts future food spend with a
+Random Forest model.
 
-## Tech Stack
+- **Frontend:** React 19 + Vite, Recharts, jsPDF
+- **Backend:** FastAPI + SQLAlchemy + PostgreSQL
+- **ML:** scikit-learn RandomForest (monthly expenditure forecast)
+- **Hosting:** AWS — CloudFront + S3 + one EC2 instance running Docker Compose
 
-| Layer | Technology |
-|---|---|
-| Frontend | React 19, Vite, Recharts, jsPDF |
-| Backend | FastAPI, SQLAlchemy |
-| Database | PostgreSQL |
-| ML | scikit-learn (Random Forest), pandas, joblib |
+> **Model warning:** the shipped model is trained on **synthetic demo data**
+> (50 students, 20 veg at ₹24 / 30 non-veg at ₹19). Forecasts are illustrative
+> and must not be used for real budgeting until retrained on school records.
 
-## Project Structure
+---
 
-```
-School Management/
-├── src/                      # React frontend
-│   ├── App.jsx               # Main application UI and pages
-│   ├── pages/Login.jsx       # Login screen
-│   └── services/             # API auth + PDF helpers
-├── public/                   # Static assets
-├── backend/                  # FastAPI backend
-│   ├── main.py               # API routes (food, teachers, login)
-│   ├── models.py             # SQLAlchemy models (User, FoodItem)
-│   ├── database.py           # DB engine / session
-│   ├── ml_prediction.py      # Expenditure forecast endpoints
-│   └── venv/                 # Local Python environment (not tracked)
-├── ML/                       # Offline training pipeline
-│   ├── ssfms_training_data.csv             # Daily training data
-│   ├── prepare_monthly_data.py             # Daily -> monthly aggregation
-│   ├── ssfms_monthly_training_data.csv     # Monthly dataset
-│   ├── train_monthly_model.py              # Trains the model
-│   └── ssfms_monthly_model.pkl             # Saved model used by the backend
-├── .env.example              # Example frontend environment variables
-└── package.json
-```
+## Local development
 
-## Prerequisites
+### 1. Database
 
-- Node.js 18+
-- Python 3.12
-- PostgreSQL 14+ with a database named `ssfms`
-
-## Setup
-
-### 1. Frontend
-
-```bash
-npm install
-cp .env.example .env     # Windows: copy .env.example .env
-npm run dev
-```
-
-The app runs at http://localhost:5173.
+PostgreSQL 16 must be running with a database named `ssfms`.
 
 ### 2. Backend
 
-```bash
+```powershell
 cd backend
-python -m venv venv
-venv\Scripts\activate          # Windows
-pip install fastapi uvicorn sqlalchemy psycopg[binary] pydantic pandas scikit-learn joblib
+Copy-Item .env.example .env    # then edit DATABASE_URL / JWT_SECRET
+.\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
 python -m uvicorn main:app --reload --host 127.0.0.1 --port 8001
 ```
 
-API docs: http://127.0.0.1:8001/docs
+API docs: <http://127.0.0.1:8001/docs>
 
-> `backend/database.py` currently contains a local PostgreSQL connection string.
-> Move those credentials into environment variables before deploying.
+On first start an admin account is created from `ADMIN_USERNAME` /
+`ADMIN_PASSWORD` in `backend/.env` (only when no admin exists yet).
 
-## Available Scripts
+### 3. Frontend
 
-| Command | Description |
-|---|---|
-| `npm run dev` | Start the Vite dev server |
-| `npm run build` | Production build |
-| `npm run preview` | Preview the production build |
-| `npm run lint` | Run Oxlint |
-
-## API Endpoints
-
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/` | Health check |
-| GET | `/test-db` | Test the database connection |
-| GET | `/tables` | List database tables |
-| GET | `/api/status` | API status summary |
-| GET/POST | `/food` | List / create food items |
-| PUT/DELETE | `/food/{id}` | Update / delete a food item |
-| GET/POST | `/teachers` | List / create teachers |
-| PUT/DELETE | `/teachers/{id}` | Update / delete a teacher |
-| POST | `/login` | Teacher login |
-| GET | `/predict/health` | ML model availability |
-| POST | `/predict/next-month` | Forecast one month |
-| POST | `/predict/next-12-months` | Recursive 12-month forecast |
-
-## ML Pipeline
-
-Retrain the forecast model from the daily data:
-
-```bash
-cd ML
-python prepare_monthly_data.py    # daily CSV -> monthly CSV
-python train_monthly_model.py     # monthly CSV -> ssfms_monthly_model.pkl
+```powershell
+npm install
+npm run dev
 ```
 
-The backend loads `ML/ssfms_monthly_model.pkl` at request time.
+Set `VITE_API_BASE_URL` in the root `.env` (defaults to `http://127.0.0.1:8001`).
 
-## Limitations
+---
 
-- Forecasts are trained on **synthetic demo data** and are not reliable for real-world
-  budgeting. The 12-month endpoint feeds predictions back in as inputs, so errors compound.
-- Passwords are stored and compared in plain text; this is a local prototype only.
-  Hash passwords and use token-based auth before any public deployment.
-- Database credentials are currently hardcoded in `backend/database.py`.
+## Authentication
+
+`POST /login` returns a signed JWT plus the user profile. Every other endpoint
+requires `Authorization: Bearer <token>`.
+
+| Role | Can do |
+|---|---|
+| `admin` | Everything: food items, teachers, reports, predictions |
+| `teacher` | Read food data, record attendance, view reports |
+
+Passwords are bcrypt-hashed. Rows created by the old prototype still store
+plaintext; they are compared once and re-hashed automatically on next login.
+
+There is **no** client-side admin bypass any more — the old hardcoded
+`admin` / `admin123` shortcut has been removed.
+
+---
+
+## API surface
+
+| Method | Path | Auth |
+|---|---|---|
+| `GET` | `/` | none |
+| `GET` | `/health` | none |
+| `GET` | `/status` | none |
+| `POST` | `/login` | none |
+| `GET` | `/food` | any user |
+| `POST` `PUT` `DELETE` | `/food`, `/food/{id}` | admin |
+| `GET` `POST` `PUT` `DELETE` | `/teachers`, `/teachers/{id}` | admin |
+| `POST` | `/predict/next-month` | any user |
+| `POST` | `/predict/next-12-months` | any user |
+| `GET` | `/predict/health` | none |
+
+---
+
+## Deploying to AWS
+
+See **[`deploy/README.md`](deploy/README.md)** for the full runbook.
+
+Short version:
+
+```powershell
+aws configure sso                 # or aws configure
+.\deploy\deploy.ps1               # creates VPC, EC2, S3, CloudFront, secrets
+```
+
+Outputs give you the site URL, API URL, and instance id. The admin password is
+in Secrets Manager (`ssfms/prod/admin`).
+
+---
+
+## Known gaps
+
+- Attendance, expenditure totals, and school settings are still stored in
+  browser `localStorage` rather than PostgreSQL, so data does not sync across
+  devices and is lost when the browser cache is cleared.
+- `users` list in the admin UI is read from `localStorage`; only newly created
+  teachers are written back to Postgres.
+- No schema migrations yet — tables are created with
+  `Base.metadata.create_all()`; add Alembic before the first production change.

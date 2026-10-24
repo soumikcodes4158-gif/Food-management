@@ -12,6 +12,11 @@ import {
 } from "./services/authService";
 
 import {
+  apiFetch,
+  clearSession,
+} from "./services/api";
+
+import {
   downloadFoodExpenditureInvoice as downloadOfficialSSFMSReport,
   previewFoodExpenditureInvoice as previewOfficialSSFMSReport,
 } from "./services/pdfService";
@@ -40,9 +45,9 @@ const ATTENDANCE_KEY =
 
 /* =========================================================
    BACKEND API
+   All requests go through apiFetch() from services/api.js so they carry the
+   bearer token and respect VITE_API_BASE_URL.
 ========================================================= */
-
-const API_BASE_URL = "http://127.0.0.1:8001";
 
 /* =========================================================
    STORAGE HELPERS
@@ -178,6 +183,12 @@ function App() {
     );
 
   useEffect(() => {
+    // The API now requires a token, so wait until someone is signed in.
+    if (!user) {
+      setFoodLoading(false);
+      return undefined;
+    }
+
     let cancelled = false;
 
     const loadFoodItems = async () => {
@@ -185,8 +196,8 @@ function App() {
         setFoodLoading(true);
         setFoodError("");
 
-        const response = await fetch(
-          `${API_BASE_URL}/food`
+        const response = await apiFetch(
+          "/food"
         );
 
         if (!response.ok) {
@@ -210,7 +221,7 @@ function App() {
 
         if (!cancelled) {
           setFoodError(
-            "Unable to connect to the SSFMS backend. Make sure FastAPI is running on port 8001."
+            "Unable to load food items from the SSFMS backend."
           );
         }
       } finally {
@@ -225,7 +236,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     saveStorage(
@@ -262,11 +273,28 @@ function App() {
 
   const handleLogout = () => {
     setUser(null);
-
-    localStorage.removeItem(
-      "ssfms_current_user"
-    );
+    clearSession();
   };
+
+  // Drop back to the login screen when the API rejects an expired token.
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      setUser(null);
+      clearSession();
+    };
+
+    window.addEventListener(
+      "ssfms:unauthorized",
+      handleUnauthorized
+    );
+
+    return () => {
+      window.removeEventListener(
+        "ssfms:unauthorized",
+        handleUnauthorized
+      );
+    };
+  }, []);
 
   if (!user) {
     return (
@@ -979,10 +1007,10 @@ function FoodManagement({
       const isEditing =
         editingId !== null;
 
-      const response = await fetch(
+      const response = await apiFetch(
         isEditing
-          ? `${API_BASE_URL}/food/${editingId}`
-          : `${API_BASE_URL}/food`,
+          ? `/food/${editingId}`
+          : "/food",
         {
           method: isEditing
             ? "PUT"
@@ -1081,8 +1109,8 @@ function FoodManagement({
     }
 
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/food/${id}`,
+      const response = await apiFetch(
+        `/food/${id}`,
         {
           method: "DELETE",
         }
@@ -1545,7 +1573,7 @@ function TeacherManagement({
 
       try {
         setSaving(true);
-        const response = await fetch(`${API_BASE_URL}/teachers`, {
+        const response = await apiFetch("/teachers", {
           method: "POST",
           headers: { "Content-Type": "application/json", Accept: "application/json" },
           body: JSON.stringify(teacherForAPI),
@@ -2784,7 +2812,7 @@ function PredictionsPage({
     }
     setLoading(true);
     try {
-      const response = await fetch("http://127.0.0.1:8001/predict/next-12-months", {
+      const response = await apiFetch("/predict/next-12-months", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -2802,7 +2830,7 @@ function PredictionsPage({
       setPrediction(result);
     } catch (err) {
       console.error("ML prediction error:", err);
-      setError(err.message || "Could not connect to the ML backend at http://127.0.0.1:8001.");
+      setError(err.message || "Could not reach the prediction service. Please try again.");
     } finally {
       setLoading(false);
     }

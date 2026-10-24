@@ -1,0 +1,22 @@
+node_modules
+dist
+dist-ssr
+.git
+.gitignore
+.vscode
+.idea
+
+# Python virtualenv + caches
+backend/venv
+**/__pycache__
+**/*.py[cod]
+
+# Never bake secrets into an image
+.env
+.env.*
+backend/.env
+backend/.env.*
+
+# Large artefacts not needed at runtime
+ML/archive
+*.log

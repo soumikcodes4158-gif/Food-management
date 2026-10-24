@@ -17,22 +17,8 @@ function Login({ onLogin }) {
     const cleanUsername = username.trim();
 
     try {
-      // Admin login for the local prototype.
-      if (
-        cleanUsername === "admin" &&
-        password === "admin123"
-      ) {
-        onLogin({
-          id: "admin",
-          name: "Administrator",
-          username: "admin",
-          role: "admin",
-        });
-
-        return;
-      }
-
-      // Teacher login through the FastAPI backend.
+      // Admin and teacher accounts both authenticate through the backend.
+      // The old hardcoded admin/admin123 bypass has been removed.
       const user = await loginUser(cleanUsername, password);
 
       if (!user) {

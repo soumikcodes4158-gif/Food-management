@@ -1,9 +1,12 @@
-const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8001"
-).replace(/\/+$/, "");
+import {
+  API_BASE_URL,
+  clearSession,
+  setToken,
+} from "./api";
 
 /**
  * Authenticate a user through the FastAPI backend.
+ * Returns the user object and stores the access token for later requests.
  */
 export async function loginUser(username, password) {
   let response;
@@ -24,7 +27,7 @@ export async function loginUser(username, password) {
     console.error("Login connection error:", error);
 
     throw new Error(
-      `Cannot connect to the backend at ${API_BASE_URL}. Make sure FastAPI is running.`
+      `Cannot connect to the backend at ${API_BASE_URL || window.location.origin}. Please try again.`
     );
   }
 
@@ -41,12 +44,26 @@ export async function loginUser(username, password) {
       );
     }
 
+    if (response.status === 429) {
+      throw new Error("Too many login attempts. Please wait a minute.");
+    }
+
     throw new Error(
       data.detail || `Login failed with status ${response.status}.`
     );
   }
 
-  return data;
+  if (!data?.user || !data?.access_token) {
+    throw new Error("The backend returned an unexpected login response.");
+  }
+
+  setToken(data.access_token);
+
+  return data.user;
+}
+
+export function logoutUser() {
+  clearSession();
 }
 
 /**

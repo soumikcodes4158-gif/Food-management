@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 
 from sqlalchemy import text
@@ -6,8 +6,17 @@ from sqlalchemy.orm import Session
 
 from pydantic import BaseModel
 
+import config
 from database import engine, Base, get_db
 from models import User, FoodItem
+from security import (
+    create_access_token,
+    get_current_user,
+    hash_password,
+    needs_rehash,
+    require_role,
+    verify_password,
+)
 from ml_prediction import router as ml_prediction_router
 
 # ============================================================
@@ -27,14 +36,7 @@ app.include_router(ml_prediction_router)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://localhost:5174",
-        "http://localhost:5175",
-        "http://127.0.0.1:5173",
-        "http://127.0.0.1:5174",
-        "http://127.0.0.1:5175",
-    ],
+    allow_origins=config.ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -42,10 +44,67 @@ app.add_middleware(
 
 
 # ============================================================
+# CLOUDFRONT PREFIX
+# CloudFront forwards /api/* to this service on one shared domain, which
+# keeps the frontend and API same-origin. Strip the prefix before routing.
+# ============================================================
+
+@app.middleware("http")
+async def strip_api_prefix(request: Request, call_next):
+    prefix = config.API_PREFIX
+
+    if prefix and request.scope["path"].startswith(prefix):
+        stripped = request.scope["path"][len(prefix):] or "/"
+        request.scope["path"] = stripped
+        if request.scope.get("raw_path"):
+            request.scope["raw_path"] = stripped.encode("utf-8")
+
+    return await call_next(request)
+
+
+# ============================================================
 # CREATE DATABASE TABLES
 # ============================================================
 
 Base.metadata.create_all(bind=engine)
+
+
+# ============================================================
+# BOOTSTRAP ADMIN
+# Creates the first admin account only when the users table is empty, so a
+# fresh deployment is usable without shipping a default password.
+# ============================================================
+
+def create_bootstrap_admin():
+    if not config.ADMIN_PASSWORD:
+        return
+
+    db = next(get_db())
+    try:
+        # Only seed when there is no admin yet; existing deployments keep
+        # whatever accounts the school already created.
+        if db.query(User).filter(User.role == "admin").first():
+            return
+
+        if db.query(User).filter(User.username == config.ADMIN_USERNAME).first():
+            return
+
+        admin = User(
+            username=config.ADMIN_USERNAME,
+            password=hash_password(config.ADMIN_PASSWORD),
+            role="admin",
+            name=config.ADMIN_NAME,
+            total_students=0,
+            veg_students=0,
+            nonveg_students=0,
+        )
+        db.add(admin)
+        db.commit()
+    finally:
+        db.close()
+
+
+create_bootstrap_admin()
 
 
 # ============================================================
@@ -73,76 +132,35 @@ def home():
 
 
 # ============================================================
-# TEST DATABASE
+# HEALTH CHECK
+# Used by the load balancer / uptime alarm. Deliberately exposes no schema
+# details, unlike the old /test-db and /tables debug endpoints.
 # ============================================================
 
-@app.get("/test-db")
-def test_database():
+@app.get("/health")
+def health():
+    database_ok = False
 
     try:
         with engine.connect() as connection:
+            database_ok = connection.execute(text("SELECT 1")).scalar() == 1
+    except Exception:
+        database_ok = False
 
-            result = connection.execute(
-                text("SELECT 1")
-            )
+    if not database_ok:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database unavailable",
+        )
 
-            value = result.scalar()
-
-        return {
-            "status": "success",
-            "database": "PostgreSQL",
-            "database_name": "ssfms",
-            "connection": value == 1
-        }
-
-    except Exception as error:
-
-        return {
-            "status": "error",
-            "message": str(error)
-        }
-
-
-# ============================================================
-# CHECK TABLES
-# ============================================================
-
-@app.get("/tables")
-def check_tables():
-
-    try:
-
-        with engine.connect() as connection:
-
-            result = connection.execute(
-                text("""
-                    SELECT table_name
-                    FROM information_schema.tables
-                    WHERE table_schema = 'public'
-                    ORDER BY table_name
-                """)
-            )
-
-            tables = [row[0] for row in result]
-
-        return {
-            "status": "success",
-            "tables": tables
-        }
-
-    except Exception as error:
-
-        return {
-            "status": "error",
-            "message": str(error)
-        }
+    return {"status": "healthy", "database": "connected"}
 
 
 # ============================================================
 # API STATUS
 # ============================================================
 
-@app.get("/api/status")
+@app.get("/status")
 def api_status():
 
     return {
@@ -159,7 +177,8 @@ def api_status():
 
 @app.get("/food")
 def get_food_items(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user)
 ):
 
     foods = db.query(FoodItem).all()
@@ -184,7 +203,8 @@ def get_food_items(
 @app.post("/food")
 def add_food(
     food_data: FoodCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("admin"))
 ):
 
     new_food = FoodItem(
@@ -220,7 +240,8 @@ def add_food(
 def update_food(
     food_id: int,
     food_data: FoodCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("admin"))
 ):
 
     food = db.query(FoodItem).filter(
@@ -262,7 +283,8 @@ def update_food(
 @app.delete("/food/{food_id}")
 def delete_food(
     food_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("admin"))
 ):
 
     food = db.query(FoodItem).filter(
@@ -303,7 +325,10 @@ class LoginRequest(BaseModel):
 
 
 @app.get("/teachers")
-def get_teachers(db: Session = Depends(get_db)):
+def get_teachers(
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("admin"))
+):
     teachers = db.query(User).filter(
         User.role == "teacher"
     ).all()
@@ -326,7 +351,8 @@ def get_teachers(db: Session = Depends(get_db)):
 @app.post("/teachers")
 def add_teacher(
     data: TeacherCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("admin"))
 ):
     existing = db.query(User).filter(
         User.username == data.username
@@ -346,7 +372,7 @@ def add_teacher(
 
     teacher = User(
         username=data.username,
-        password=data.password,
+        password=hash_password(data.password),
         name=data.name,
         role="teacher",
         class_name=data.class_name,
@@ -371,7 +397,8 @@ def add_teacher(
 def update_teacher(
     teacher_id: int,
     data: TeacherCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("admin"))
 ):
     teacher = db.query(User).filter(
         User.id == teacher_id,
@@ -402,7 +429,7 @@ def update_teacher(
         )
 
     teacher.username = data.username
-    teacher.password = data.password
+    teacher.password = hash_password(data.password)
     teacher.name = data.name
     teacher.class_name = data.class_name
     teacher.section = data.section
@@ -418,7 +445,8 @@ def update_teacher(
 @app.delete("/teachers/{teacher_id}")
 def delete_teacher(
     teacher_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("admin"))
 ):
     teacher = db.query(User).filter(
         User.id == teacher_id,
@@ -437,34 +465,44 @@ def delete_teacher(
     return {"message": "Teacher deleted successfully"}
 
 # ============================================================
-# TEACHER LOGIN API
+# LOGIN API
+# Works for admins and teachers. Returns a signed access token; every
+# protected route expects it in an "Authorization: Bearer <token>" header.
 # ============================================================
+
+LOGIN_FAILED = HTTPException(
+    status_code=status.HTTP_401_UNAUTHORIZED,
+    detail="Invalid username or password",
+)
+
 
 @app.post("/login")
 def login(data: LoginRequest, db: Session = Depends(get_db)):
-    # Find the teacher by username (case-insensitive).
-    teacher = db.query(User).filter(
-        User.username.ilike(data.username.strip()),
-        User.role == "teacher"
+    account = db.query(User).filter(
+        User.username.ilike(data.username.strip())
     ).first()
 
-    # Temporary comparison for the current local prototype.
-    # Use secure password hashing before deploying publicly.
-    if not teacher or teacher.password != data.password:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid username or password"
-        )
+    if not account or not verify_password(data.password, account.password):
+        raise LOGIN_FAILED
 
-    # Never return the password to the frontend.
+    # Transparently upgrade rows still stored as plaintext.
+    if needs_rehash(account.password):
+        account.password = hash_password(data.password)
+        db.commit()
+
     return {
-        "id": teacher.id,
-        "username": teacher.username,
-        "role": teacher.role,
-        "name": teacher.name,
-        "class_name": teacher.class_name,
-        "section": teacher.section,
-        "total_students": teacher.total_students,
-        "veg_students": teacher.veg_students,
-        "nonveg_students": teacher.nonveg_students
+        "access_token": create_access_token(account),
+        "token_type": "bearer",
+        "expires_in_minutes": config.ACCESS_TOKEN_EXPIRE_MINUTES,
+        "user": {
+            "id": account.id,
+            "username": account.username,
+            "role": account.role,
+            "name": account.name,
+            "class_name": account.class_name,
+            "section": account.section,
+            "total_students": account.total_students,
+            "veg_students": account.veg_students,
+            "nonveg_students": account.nonveg_students,
+        },
     }

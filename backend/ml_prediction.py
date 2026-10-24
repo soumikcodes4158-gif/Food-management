@@ -3,19 +3,16 @@ from calendar import month_name
 
 import joblib
 import pandas as pd
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+
+import config
+from security import get_current_user
 
 router = APIRouter(tags=["ML Expenditure Prediction"])
 
-# Expected structure:
-# D:\School Management\backend\ml_prediction.py
-# D:\School Management\ML\ssfms_monthly_model.pkl
-BASE_DIR = Path(__file__).resolve().parent
-PROJECT_DIR = BASE_DIR.parent
-ML_DIR = PROJECT_DIR / "ML"
-MODEL_PATH = ML_DIR / "ssfms_monthly_model.pkl"
-DATA_PATH = ML_DIR / "ssfms_monthly_training_data.csv"
+MODEL_PATH = config.MODEL_PATH
+DATA_PATH = config.TRAINING_DATA_PATH
 
 
 class MonthlyPredictionRequest(BaseModel):
@@ -75,7 +72,10 @@ def prediction_health():
 
 
 @router.post("/predict/next-month")
-def predict_next_month(data: MonthlyPredictionRequest):
+def predict_next_month(
+    data: MonthlyPredictionRequest,
+    user: dict = Depends(get_current_user),
+):
     _, model, features = load_saved_model()
     prediction = predict_one(
         model, features, data.target_year, data.target_month,
@@ -96,7 +96,10 @@ def predict_next_month(data: MonthlyPredictionRequest):
 
 
 @router.post("/predict/next-12-months")
-def predict_next_twelve_months(data: TwelveMonthPredictionRequest):
+def predict_next_twelve_months(
+    data: TwelveMonthPredictionRequest,
+    user: dict = Depends(get_current_user),
+):
     _, model, features = load_saved_model()
     previous = float(data.previous_month_expenditure)
     two_months_ago = float(data.two_months_ago_expenditure)

@@ -1,10 +1,14 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-# PostgreSQL connection
-DATABASE_URL = "postgresql+psycopg://postgres:Soumik2006@localhost:5432/ssfms"
+from config import DATABASE_URL
 
-engine = create_engine(DATABASE_URL)
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,
+    pool_size=5,
+    max_overflow=10,
+)
 
 SessionLocal = sessionmaker(
     autocommit=False,
