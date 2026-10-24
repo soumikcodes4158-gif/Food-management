@@ -59,7 +59,25 @@ ADMIN_USERNAME = _env("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = _env("ADMIN_PASSWORD")
 ADMIN_NAME = _env("ADMIN_NAME", "Administrator")
 
-ML_DIR = Path(_env("ML_DIR") or (PROJECT_DIR / "ML"))
+def _resolve_ml_dir() -> Path:
+    """Locate the ML folder.
+
+    Local dev keeps it beside backend/ (PROJECT_DIR/ML). The container copies
+    backend/ to /app and ML to /app/ML, so fall back to BASE_DIR/ML when the
+    sibling folder does not exist.
+    """
+    explicit = _env("ML_DIR")
+    if explicit:
+        return Path(explicit)
+
+    for candidate in (PROJECT_DIR / "ML", BASE_DIR / "ML"):
+        if candidate.is_dir():
+            return candidate
+
+    return PROJECT_DIR / "ML"
+
+
+ML_DIR = _resolve_ml_dir()
 MODEL_PATH = ML_DIR / "ssfms_monthly_model.pkl"
 TRAINING_DATA_PATH = ML_DIR / "ssfms_monthly_training_data.csv"
 

@@ -31,6 +31,9 @@ services:
     environment:
       ENVIRONMENT: production
       API_PREFIX: /api
+      # backend/ is copied to /app in the image, so the ML folder lands at
+      # /app/ML. Without this the app looks for /ML next to the filesystem root.
+      ML_DIR: /app/ML
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-ssfms}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-ssfms}
     depends_on:
