@@ -22,6 +22,9 @@ GitHub Actions / OIDC is **not used**: the project SCP denies
 CloudFormation is also blocked in `us-east-1`, so the WAF is created through the
 WAF API directly rather than a stack.
 
+Console deep links and CLI equivalents for every resource are listed in
+[`../AWS-LINKS.md`](../AWS-LINKS.md).
+
 Track 1 architecture: one ARM EC2 instance runs the FastAPI container and
 PostgreSQL with Docker Compose, a private S3 bucket holds the React build, and
 a single CloudFront distribution serves the site at `/` and proxies `/api/*` to

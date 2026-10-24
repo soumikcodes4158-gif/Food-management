@@ -477,4 +477,5 @@ More deployment-specific failures are covered in
 | [`src/README.md`](src/README.md) | Frontend structure, component map, state, API client, PDF reports |
 | [`ML/README.md`](ML/README.md) | Dataset schemas, training pipeline, evaluation, retraining |
 | [`deploy/README.md`](deploy/README.md) | AWS architecture, prerequisites, deploy/operate/restore/teardown |
+| [`AWS-LINKS.md`](AWS-LINKS.md) | Console deep links and CLI equivalents for the live environment |
 | [`AGENTS.md`](AGENTS.md) | Instructions for AI coding agents working in this repository |
